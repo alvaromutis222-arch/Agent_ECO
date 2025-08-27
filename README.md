@@ -20,10 +20,10 @@ El agente es capaz de:
 ---
 
 ## 📂 Estructura del proyecto
-```agente-economico-llm/
+```Agent_ECO/
 ├── app.py             # Aplicación principal en Streamlit
 ├── requirements.txt   # Dependencias necesarias
-└── README.md          # Documentación del proyecto```
+└── README.md          # Documentación del proyecto
 
 
 ## ⚙️ Instalación y uso
@@ -31,5 +31,5 @@ El agente es capaz de:
 ### 1. Clonar el repositorio
 ```bash
 git clone https://github.com/alvaromutis222/Agent_ECO.git
-cd Agent_ECO
+cd Agent_ECO ```  ```  ```
 
