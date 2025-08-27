@@ -20,8 +20,8 @@ El agente es capaz de:
 ---
 
 ## 📂 Estructura del proyecto
-
+(
 agente-economico-llm/
 ├── app.py             # Aplicación principal en Streamlit
 ├── requirements.txt   # Dependencias necesarias
-└── README.md          # Documentación del proyecto
+└── README.md          # Documentación del proyecto)
