@@ -24,3 +24,12 @@ El agente es capaz de:
 ├── app.py             # Aplicación principal en Streamlit
 ├── requirements.txt   # Dependencias necesarias
 └── README.md          # Documentación del proyecto```
+
+
+## ⚙️ Instalación y uso
+
+### 1. Clonar el repositorio
+```bash
+git clone https://github.com/alvaromutis222/Agent_ECO.git
+cd Agent_ECO
+
