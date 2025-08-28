@@ -21,11 +21,8 @@ Cómo ejecutar localmente
 """
 
 import os
-import time
-import math
-import json
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -59,14 +56,13 @@ with st.expander("ℹ️ Instrucciones rápidas", expanded=False):
   1. **Chat** – conversación con el agente.
   2. **Análisis** – carga CSV y genera tendencias / señales.
   3. **Simulador** – escenarios de inflación, CAGR y series sintéticas.
-- **Sustentación (5 min)**: abre el panel *🎤 Guion de sustentación*.
     """)
 
 # =========================
 #  Estado de Sesión
 # =========================
 if "messages" not in st.session_state:
-    st.session_state.messages: List[Dict[str, str]] = []  # [{"role":"system/user/assistant","content":str}, ...]
+    st.session_state.messages: List[Dict[str, str]] = []
 
 if "provider_ok" not in st.session_state:
     st.session_state.provider_ok = False
@@ -109,7 +105,7 @@ st.sidebar.caption("Hecho para cumplir los requisitos: Streamlit + modelos gratu
 # =========================
 @dataclass
 class LLMConfig:
-    provider: str  # "groq" | "ollama"
+    provider: str
     temperature: float
     system_prompt: str
     groq_key: Optional[str] = None
@@ -118,12 +114,11 @@ class LLMConfig:
 
 
 def make_client(cfg: LLMConfig):
-    """Devuelve una función call_llm(messages) -> str según el proveedor elegido."""
     if cfg.provider == "groq":
         if Groq is None:
-            raise RuntimeError("El paquete 'groq' no está instalado. Añádelo al requirements.txt e instala dependencias.")
+            raise RuntimeError("El paquete 'groq' no está instalado.")
         if not cfg.groq_key:
-            raise RuntimeError("Falta GROQ_API_KEY. Proporciónala en el sidebar o como variable de entorno.")
+            raise RuntimeError("Falta GROQ_API_KEY.")
         client = Groq(api_key=cfg.groq_key)
 
         def _call_llm(messages: List[Dict[str, str]]) -> str:
@@ -143,7 +138,6 @@ def make_client(cfg: LLMConfig):
         chat = ChatOllama(model=cfg.ollama_model, temperature=cfg.temperature)
 
         def _call_llm(messages: List[Dict[str, str]]) -> str:
-            # Convertimos a formato simple para ChatOllama (concat system+user)
             sys = "\n".join([m["content"] for m in messages if m["role"] == "system"])
             last_user = [m["content"] for m in messages if m["role"] == "user"]
             prompt = (sys + "\n\nUsuario:\n" + (last_user[-1] if last_user else "")).strip()
@@ -156,7 +150,6 @@ def make_client(cfg: LLMConfig):
         raise ValueError("Proveedor inválido")
 
 
-# Intentamos inicializar
 cfg = LLMConfig(
     provider="groq" if provider.startswith("Groq") else "ollama",
     temperature=float(temperature),
@@ -177,7 +170,6 @@ except Exception as e:
 #   Utilidades Económicas
 # =========================
 def inflacion_acumulada(tasas_mensuales: List[float]) -> float:
-    """Dada una lista de tasas mensuales (en %), devuelve la inflación acumulada (en %)."""
     factor = 1.0
     for t in tasas_mensuales:
         factor *= (1.0 + t/100.0)
@@ -185,14 +177,12 @@ def inflacion_acumulada(tasas_mensuales: List[float]) -> float:
 
 
 def cagr(valor_inicial: float, valor_final: float, años: float) -> float:
-    """Tasa de crecimiento anual compuesta (%)"""
     if valor_inicial <= 0 or valor_final <= 0 or años <= 0:
         return float("nan")
-    return ( (valor_final / valor_inicial) ** (1.0 / años) - 1.0 ) * 100.0
+    return ((valor_final / valor_inicial) ** (1.0 / años) - 1.0) * 100.0
 
 
 def serie_sintetica(precio0=100.0, dias=252, drift=0.05, volatilidad=0.2, seed=42):
-    """Random walk geométrico para simular precios de un índice/activo."""
     rng = np.random.default_rng(seed)
     dt = 1.0/252.0
     shocks = rng.normal((drift - 0.5*volatilidad**2)*dt, volatilidad*np.sqrt(dt), size=dias)
@@ -227,13 +217,12 @@ def plot_series(df: pd.DataFrame, col="precio"):
 # =========================
 #   Tabs principales
 # =========================
-tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "📊 Análisis", "🧪 Simulador", "🎤 Guion de sustentación"])
+tab1, tab2, tab3 = st.tabs(["💬 Chat", "📊 Análisis", "🧪 Simulador"])
 
 # ------------- Tab 1: Chat ---------------
 with tab1:
     st.subheader("Chat con el agente")
     if st.session_state.provider_ok and call_llm is not None:
-        # Ensamblar historial + system
         base_messages = [{"role": "system", "content": cfg.system_prompt}]
         for m in st.session_state.messages:
             base_messages.append(m)
@@ -249,7 +238,6 @@ with tab1:
                     answer = f"Error al llamar al modelo: {e}"
             st.session_state.messages.append({"role": "assistant", "content": answer})
 
-        # Render del historial
         for m in st.session_state.messages:
             if m["role"] == "user":
                 with st.chat_message("user"):
@@ -271,7 +259,6 @@ with tab2:
     if uploaded is not None:
         try:
             df = pd.read_csv(uploaded)
-            # Buscar columna precio/cierre
             col = "precio" if "precio" in df.columns else ("close" if "close" in df.columns else df.columns[1])
             if "date" in df.columns:
                 df["date"] = pd.to_datetime(df["date"])
@@ -287,7 +274,6 @@ with tab2:
         st.dataframe(result.tail(10))
         plot_series(result, "precio")
 
-        # Métricas simples
         car = (1.0 + result["ret_estrategia"].fillna(0)).prod() - 1.0
         st.metric("Rentabilidad estrategia (periodo cargado)", f"{car*100:.2f}%")
 
@@ -320,33 +306,6 @@ with tab3:
         df_syn = serie_sintetica(dias=int(dias), drift=float(drift), volatilidad=float(vol))
         res = analizar_tendencias(df_syn)
         plot_series(res)
-
-# ------------- Tab 4: Guion de sustentación ---------------
-with tab4:
-    st.subheader("Guion sugerido (≤ 5 minutos)")
-    st.markdown("""
-**1) Arquitectura (1 min)**
-- *Frontend*: Streamlit.
-- *LLM*: Llama 3.x a través de **Groq** (API key) o **Ollama** local.
-- *Capa de dominio*: utilidades de análisis (inflación, CAGR, medias móviles) y simulador.
-- *Razón*: todo es gratuito o con plan libre; fácil despliegue en GitHub + Streamlit Cloud/Community.
-
-**2) Decisiones de diseño (1 min)**
-- Separación de preocupaciones: UI, cliente LLM, utilidades económicas.
-- 'Lenguaje Pro' (system prompt) editable para orientar el estilo experto.
-- Fallback a Ollama para entorno sin nube.
-
-**3) Demostración (2 min)**
-- Chat: pedir *“explica inflación subyacente y dame un ejemplo numérico”.*
-- Análisis: cargar CSV con columna `precio` o `close` y mostrar señales.
-- Simulador: mostrar inflación acumulada y CAGR, luego una serie sintética.
-
-**4) Desafíos / Limitaciones (1 min)**
-- Modelos locales pueden ser más lentos/simples sin GPU.
-- Series sintéticas y métricas son educativas, no asesoría financiera.
-- Extensiones posibles: incorporar fuentes abiertas (FRED, Banco Mundial), memoria a largo plazo, tool calling.
-    """)
-
 
 # Footer
 st.markdown("---")
