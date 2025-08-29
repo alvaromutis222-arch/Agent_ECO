@@ -21,6 +21,7 @@ Cómo ejecutar localmente
 """
 
 import os
+import re
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 
@@ -80,16 +81,24 @@ provider = st.sidebar.selectbox(
 )
 
 temperature = st.sidebar.slider("Temperatura (creatividad)", 0.0, 1.2, 0.2, 0.1)
+
+# --- PROMPT RESTRINGIDO ---
 system_prompt = st.sidebar.text_area(
     "🔧 'Lenguaje Pro' (System Prompt)",
     value=(
-        "Eres **EcoMentor**, un agente económico hispanohablante, claro y conciso. "
-        "Respondes con datos, fórmulas y ejemplos. Cuando expliques un concepto, incluye "
-        "una mini definición, una fórmula (si aplica) y un ejemplo numérico breve. "
+        "Eres **EcoMentor**, un agente económico y financiero hispanohablante. "
+        "Respondes **únicamente** a preguntas relacionadas con economía, finanzas, "
+        "mercados, inversiones, contabilidad, macro/microeconomía, políticas económicas, "
+        "estadísticas económicas, econometría y conceptos técnicos afines. "
+        "Si el usuario pregunta sobre un tema distinto, rechaza amablemente indicando "
+        "que solo respondes cuestiones económicas y ofrece redirigir la conversación "
+        "a un ángulo económico. "
+        "Tus respuestas incluyen, cuando aplique: (1) una mini definición, "
+        "(2) una fórmula o marco conceptual, y (3) un ejemplo numérico breve. "
         "Si el usuario pide proyecciones, aclara que son aproximaciones educativas."
     ),
-    height=180,
-    help="Personaliza el comportamiento experto del agente."
+    height=240,
+    help="Agente restringido a temas económicos y financieros."
 )
 
 st.sidebar.markdown("---")
@@ -138,6 +147,7 @@ def make_client(cfg: LLMConfig):
         chat = ChatOllama(model=cfg.ollama_model, temperature=cfg.temperature)
 
         def _call_llm(messages: List[Dict[str, str]]) -> str:
+            # LangChain ChatOllama usa un prompt simple; ensamblamos system + último usuario
             sys = "\n".join([m["content"] for m in messages if m["role"] == "system"])
             last_user = [m["content"] for m in messages if m["role"] == "user"]
             prompt = (sys + "\n\nUsuario:\n" + (last_user[-1] if last_user else "")).strip()
@@ -215,6 +225,51 @@ def plot_series(df: pd.DataFrame, col="precio"):
 
 
 # =========================
+#   Filtro de dominio (economía)
+# =========================
+_ECON_KEYWORDS = [
+    # ES
+    "economía", "económico", "macroeconomía", "microeconomía", "finanzas", "financiero",
+    "inflación", "deflación", "desinflación", "ipc", "ipp", "pib", "pbi", "pnb",
+    "balanza", "cuenta corriente", "tipo de cambio", "devaluación", "revaluación",
+    "tasas de interés", "tasa de interés", "tasa real", "tasa nominal",
+    "bonos", "acciones", "renta fija", "renta variable", "etf", "derivados",
+    "dividendos", "portafolio", "cartera", "riesgo", "volatilidad", "beta", "alpha",
+    "valoración", "valuación", "flujo de caja", "dcf", "wacc", "capm",
+    "contabilidad", "balance", "estado de resultados", "flujo de efectivo",
+    "costo", "ingreso", "margen", "ebitda", "ebit", "roe", "roa", "roic",
+    "impuestos", "fiscal", "deuda", "apalancamiento", "liquidez",
+    "mercado", "mercados", "bolsa", "índice", "índices", "spread",
+    "comercio", "exportación", "importación", "arancel", "balanza comercial",
+    "desempleo", "empleo", "salario", "salarios", "productividad",
+    "banca", "banco central", "tasa de referencia", "política monetaria", "política fiscal",
+    "econometría", "series temporales", "coyuntura",
+    # EN (por si el usuario mezcla)
+    "economy", "macroeconomics", "microeconomics", "finance", "inflation", "gdp",
+    "interest rate", "interest rates", "bond", "equity", "stock", "stocks",
+    "valuation", "discounted cash flow", "wacc", "capm", "portfolio", "volatility",
+]
+
+_ECON_PATTERNS = [
+    r"\b\d+(\.\d+)?\s?%(\s+(inflación|ipc|tasa|interest|yield|growth))?\b",
+    r"\b(PIB|PBI|GDP|IPC|CPI|IPP|PPI)\b",
+    r"\b(WACC|CAPM|DCF|EBITDA|ROE|ROA|ROIC)\b",
+]
+
+
+def es_tema_economico(texto: str) -> bool:
+    t = (texto or "").lower()
+    # Palabras clave simples
+    if any(k in t for k in _ECON_KEYWORDS):
+        return True
+    # Patrones comunes (indicadores, % etc.)
+    for pat in _ECON_PATTERNS:
+        if re.search(pat, texto, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+# =========================
 #   Tabs principales
 # =========================
 tab1, tab2, tab3 = st.tabs(["💬 Chat", "📊 Análisis", "🧪 Simulador"])
@@ -223,20 +278,38 @@ tab1, tab2, tab3 = st.tabs(["💬 Chat", "📊 Análisis", "🧪 Simulador"])
 with tab1:
     st.subheader("Chat con el agente")
     if st.session_state.provider_ok and call_llm is not None:
-        base_messages = [{"role": "system", "content": cfg.system_prompt}]
+        # Se añade un recordatorio de política de dominio como segundo system message
+        base_messages = [
+            {"role": "system", "content": cfg.system_prompt},
+            {"role": "system", "content": (
+                "Política de dominio: Responde únicamente temas económicos/financieros. "
+                "Si la consulta no es económica, responde con una negativa amable y propone "
+                "un enfoque económico relacionado."
+            )},
+        ]
         for m in st.session_state.messages:
             base_messages.append(m)
 
         user_input = st.chat_input("Escribe tu pregunta económica aquí…")
         if user_input:
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            chat_messages = base_messages + [{"role": "user", "content": user_input}]
-            with st.spinner("Pensando…"):
-                try:
-                    answer = call_llm(chat_messages)
-                except Exception as e:
-                    answer = f"Error al llamar al modelo: {e}"
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+            # Filtro previo de dominio antes de llamar al LLM
+            if not es_tema_economico(user_input):
+                rechazo = (
+                    "Lo siento, solo puedo responder preguntas de **economía y finanzas**. "
+                    "Si quieres, podemos reformular tu consulta con un **enfoque económico** "
+                    "(por ejemplo, impacto económico, costos/beneficios, mercado, precios, empleo, etc.)."
+                )
+                st.session_state.messages.append({"role": "user", "content": user_input})
+                st.session_state.messages.append({"role": "assistant", "content": rechazo})
+            else:
+                st.session_state.messages.append({"role": "user", "content": user_input})
+                chat_messages = base_messages + [{"role": "user", "content": user_input}]
+                with st.spinner("Pensando…"):
+                    try:
+                        answer = call_llm(chat_messages)
+                    except Exception as e:
+                        answer = f"Error al llamar al modelo: {e}"
+                st.session_state.messages.append({"role": "assistant", "content": answer})
 
         for m in st.session_state.messages:
             if m["role"] == "user":
